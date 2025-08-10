@@ -1,13 +1,15 @@
 import os
 import sys
+from src.config import DEFAULTS  # noqa: E402
+from src.genre_classifier.dataset import create_dataset  # noqa: E402
+
 
 # Add project root to sys.path so `src` is importable when running from scripts/
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from src.config import DEFAULTS  # noqa: E402
-from src.genre_classifier.dataset import create_dataset  # noqa: E402
+
 
 if __name__ == "__main__":
     create_dataset(

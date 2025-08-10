@@ -1,9 +1,11 @@
 import os
 import pickle
+import librosa
 import numpy as np
 from collections import Counter
 from typing import Optional, Tuple
-
+import matplotlib.pyplot as plt
+import librosa
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDisplay
@@ -181,4 +183,180 @@ def predict_single_file(audio_file_path: str, model_path: str, dataset_path: str
         print(f"Error during prediction: {e}")
         return None, None
 
+
+def interactive_visualisation(model_path: str, dataset_path: str):
+    """
+    Create a simple, robust interactive visualization showing genre spectrograms.
+    """
+    # Load data and model
+    data = np.load(dataset_path, allow_pickle=True)
+    features_train = data['features_train']
+    features_test = data['features_test']
+    genres_train = data['genres_train']
+    genres_test = data['genres_test']
+    label_classes = data['label_classes']
+    file_ids_train = data['file_ids_train']
+    file_ids_test = data['file_ids_test']
+    
+    model, encoder = load_trained_model(model_path)
+    if model is None:
+        print("Error: Could not load model")
+        return
+    
+    # Pre-compute spectrograms for all genres to avoid real-time processing
+    print("Pre-computing spectrograms for all genres...")
+    genre_spectrograms = {}
+    
+    for genre_idx, genre_name in enumerate(label_classes):
+        genre_mask = genres_test == genre_idx
+        genre_file_ids = file_ids_test[genre_mask]
+        unique_files = np.unique(genre_file_ids)
+        
+        if len(unique_files) == 0:
+            continue
+        
+        spectrograms = []
+        for file_path in unique_files[:2]:  # Use fewer files for speed
+            try:
+                y, sr = librosa.load(file_path, sr=22050, duration=5.0)  # Shorter duration
+                mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=64, fmax=8000)  # Fewer mels
+                mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+                spectrograms.append(mel_spec_db)
+            except Exception as e:
+                print(f"Error processing {file_path}: {e}")
+                continue
+        
+        if spectrograms:
+            avg_spec = np.mean(spectrograms, axis=0)
+            genre_spectrograms[genre_name] = avg_spec
+            print(f"* {genre_name}: {len(spectrograms)} files")
+    
+    if not genre_spectrograms:
+        print("No spectrograms could be computed. Check your audio files.")
+        return
+    
+    # Set up the plot style
+    plt.style.use('default')
+    plt.rcParams['font.family'] = 'DejaVu Sans'
+    plt.rcParams['font.size'] = 10
+    plt.rcParams['axes.titlesize'] = 12
+    plt.rcParams['axes.labelsize'] = 10
+    
+    # Create a beautiful grid of spectrograms
+    n_genres = len(genre_spectrograms)
+    cols = min(3, n_genres)
+    rows = (n_genres + cols - 1) // cols
+    
+    # Create figure with better proportions
+    fig, axes = plt.subplots(rows, cols, figsize=(18, 6*rows), 
+                            gridspec_kw={'hspace': 0.4, 'wspace': 0.3})
+    
+    # Handle single row/column cases
+    if rows == 1:
+        axes = axes.reshape(1, -1)
+    elif cols == 1:
+        axes = axes.reshape(-1, 1)
+    
+    # Define a beautiful colormap
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+              '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    
+    # Plot spectrograms with enhanced styling
+    for idx, (genre_name, spec) in enumerate(genre_spectrograms.items()):
+        row = idx // cols
+        col = idx % cols
+        ax = axes[row, col]
+        
+        # Use a more appealing colormap
+        im = ax.imshow(spec, aspect='auto', origin='lower', 
+                      cmap='magma', interpolation='bilinear')
+        
+        # Enhanced title with genre name
+        ax.set_title(f'{genre_name.upper()}', fontsize=14, fontweight='bold', 
+                    color=colors[idx % len(colors)], pad=15)
+        
+        # Better axis labels
+        ax.set_xlabel('Time (frames)', fontsize=11, fontweight='semibold')
+        ax.set_ylabel('Mel Frequency', fontsize=11, fontweight='semibold')
+        
+        # Add grid for better readability
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+        
+        # Add colorbar with better styling
+        cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+        cbar.set_label('Power (dB)', fontsize=10, fontweight='semibold')
+        cbar.ax.tick_params(labelsize=9)
+        
+        # Remove top and right spines for cleaner look
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_linewidth(1.5)
+        ax.spines['bottom'].set_linewidth(1.5)
+        
+        # Better tick styling
+        ax.tick_params(axis='both', which='major', labelsize=9, width=1.5, length=6)
+        ax.tick_params(axis='both', which='minor', width=1, length=3)
+    
+    # Hide empty subplots
+    for idx in range(len(genre_spectrograms), rows * cols):
+        row = idx // cols
+        col = idx % cols
+        axes[row, col].set_visible(False)
+    
+    # Enhanced main title
+    fig.suptitle('MUSIC GENRE SPECTROGRAM ANALYSIS', fontsize=20, fontweight='bold', 
+                y=0.98, color='#2c3e50')
+    
+    # Add subtitle
+    fig.text(0.5, 0.95, 'Average Mel Spectrograms by Genre - Audio Frequency Patterns', 
+             fontsize=14, ha='center', style='italic', color='#7f8c8d')
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Also show feature correlation heatmap with enhanced styling
+    print("\nCreating feature correlation heatmap...")
+    all_features = np.vstack([features_train, features_test])
+    corr_matrix = np.corrcoef(all_features.T)
+    
+    # Create a beautiful correlation heatmap
+    fig, ax = plt.subplots(figsize=(12, 10))
+    
+    # Use a better colormap for correlation
+    im = ax.imshow(corr_matrix, cmap='RdBu_r', aspect='auto', vmin=-1, vmax=1,
+                   interpolation='nearest')
+    
+    # Enhanced colorbar
+    cbar = plt.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
+    cbar.set_label('Correlation Coefficient', fontsize=12, fontweight='semibold')
+    cbar.ax.tick_params(labelsize=10)
+    
+    # Better title and labels
+    ax.set_title('MFCC Feature Correlation Matrix', fontsize=16, fontweight='bold', 
+                pad=20, color='#2c3e50')
+    ax.set_xlabel('Feature Index', fontsize=12, fontweight='semibold')
+    ax.set_ylabel('Feature Index', fontsize=12, fontweight='semibold')
+    
+    # Add grid for better readability
+    ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+    
+    # Better tick styling
+    ax.tick_params(axis='both', which='major', labelsize=10, width=1.5, length=6)
+    ax.tick_params(axis='both', which='minor', width=1, length=3)
+    
+    # Remove top and right spines
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_linewidth(1.5)
+    ax.spines['bottom'].set_linewidth(1.5)
+    
+    # Add text annotation for interpretation
+    fig.text(0.5, 0.02, 'Red: Positive correlation | Blue: Negative correlation | White: No correlation', 
+             fontsize=11, ha='center', style='italic', color='#7f8c8d',
+             bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
+    
+    plt.tight_layout()
+    plt.show()
+    
+    print("Visualization complete!")
 
