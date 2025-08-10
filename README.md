@@ -7,10 +7,8 @@ Lightweight music genre classifier using MFCC features and a RandomForest baseli
 ```
 src/                # library code and configs
 scripts/            # runnable scripts (dataset/train/evaluate)
-tests/              # unit tests
 data/               # dataset (raw/processed)
 models/             # saved models
-notebooks/          # analysis notebooks
 ```
 
 ## Quick start
